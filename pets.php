@@ -154,7 +154,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     exit;
 }
 
-// Get pets, owners, and the users who added or updated them.
+// Search and retrieve pets.
+$search = trim($_GET["search"] ?? "");
+
 $sql = "SELECT
             pets.*,
             owners.owner_name,
@@ -166,10 +168,26 @@ $sql = "SELECT
         LEFT JOIN users AS added_user
             ON pets.added_by = added_user.user_id
         LEFT JOIN users AS updated_user
-            ON pets.last_updated_by = updated_user.user_id
-        ORDER BY pets.pet_id DESC";
+            ON pets.last_updated_by = updated_user.user_id";
 
-$pets = $pdo->query($sql)->fetchAll();
+if ($search !== "") {
+    $sql .= " WHERE pets.pet_name LIKE :search
+              OR owners.owner_name LIKE :search
+              OR pets.species LIKE :search
+              OR pets.breed LIKE :search";
+}
+
+$sql .= " ORDER BY pets.pet_id DESC";
+
+$stmt = $pdo->prepare($sql);
+
+if ($search !== "") {
+    $stmt->execute(["search" => "%$search%"]);
+} else {
+    $stmt->execute();
+}
+
+$pets = $stmt->fetchAll();
 
 // Get owners for the pet registration dropdown.
 $owners = $pdo->query(
@@ -378,8 +396,24 @@ th { background: #edf3ef; }
     </section>
 
     <section class="panel">
-        <h2>Registered Pets</h2>
-        <div class="table-wrap">
+    <h2>Registered Pets</h2>
+
+    <form method="GET" action="pets.php" class="search-form">
+        <input
+            type="text"
+            name="search"
+            placeholder="Search by pet name, owner, species, or breed..."
+            value="<?= h($search) ?>"
+        >
+
+        <button type="submit">Search</button>
+
+        <?php if ($search !== ""): ?>
+            <a class="button cancel" href="pets.php">Clear</a>
+        <?php endif; ?>
+    </form>
+
+    <div class="table-wrap">
             <table>
                 <thead>
                     <tr>

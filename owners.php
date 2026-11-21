@@ -132,18 +132,41 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
 // Retrieve all owners.
 
-$stmt = $pdo->query(
-    "SELECT
-        owners.*,
-        added_user.username AS added_by_name,
-        updated_user.username AS updated_by_name
-     FROM owners
-     LEFT JOIN users AS added_user
-        ON owners.added_by = added_user.user_id
-     LEFT JOIN users AS updated_user
-        ON owners.last_updated_by = updated_user.user_id
-     ORDER BY owners.owner_id DESC"
-);
+$search = trim($_GET["search"] ?? "");
+
+if ($search !== "") {
+    $stmt = $pdo->prepare(
+        "SELECT
+            owners.*,
+            added_user.username AS added_by_name,
+            updated_user.username AS updated_by_name
+         FROM owners
+         LEFT JOIN users AS added_user
+            ON owners.added_by = added_user.user_id
+         LEFT JOIN users AS updated_user
+            ON owners.last_updated_by = updated_user.user_id
+         WHERE owners.owner_name LIKE :search
+            OR owners.phone_number LIKE :search
+            OR owners.email LIKE :search
+         ORDER BY owners.owner_id DESC"
+    );
+
+    $stmt->execute(["search" => "%$search%"]);
+} else {
+    $stmt = $pdo->query(
+        "SELECT
+            owners.*,
+            added_user.username AS added_by_name,
+            updated_user.username AS updated_by_name
+         FROM owners
+         LEFT JOIN users AS added_user
+            ON owners.added_by = added_user.user_id
+         LEFT JOIN users AS updated_user
+            ON owners.last_updated_by = updated_user.user_id
+         ORDER BY owners.owner_id DESC"
+    );
+}
+
 $owners = $stmt->fetchAll();
 
 
@@ -310,10 +333,25 @@ th { background: #edf3ef; }
         </form>
     </section>
 
-    <section class="panel">
-        <h2>Registered Owners</h2>
+        <section class="panel">
+            <h2>Registered Owners</h2>
 
-        <div class="table-wrap">
+    <form method="GET" action="owners.php" class="search-form">
+        <input
+            type="text"
+            name="search"
+            placeholder="Search by owner name, phone, or email..."
+            value="<?= h($search) ?>"
+        >
+
+        <button type="submit">Search</button>
+
+        <?php if ($search !== ""): ?>
+            <a class="button cancel" href="owners.php">Clear</a>
+        <?php endif; ?>
+    </form>
+
+    <div class="table-wrap">
             <table>
                 <thead>
                     <tr>
