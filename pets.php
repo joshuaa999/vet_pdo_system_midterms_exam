@@ -10,6 +10,7 @@ if (!isset($_SESSION["user_id"])) {
 require_once "dbconfig.php";
 
 
+ 
  // Handle pet deletion.
 if (isset($_GET["delete"]) && ctype_digit($_GET["delete"])) {
     $pet_id = (int) $_GET["delete"];
@@ -17,20 +18,48 @@ if (isset($_GET["delete"]) && ctype_digit($_GET["delete"])) {
     try {
         $pdo->beginTransaction();
 
-        // Get the pet details before deleting it.
+        // Retrieve the complete pet record before deletion.
         $stmt = $pdo->prepare(
-            "SELECT pet_name FROM pets WHERE pet_id = :pet_id"
+            "SELECT * FROM pets WHERE pet_id = :pet_id"
         );
         $stmt->execute(["pet_id" => $pet_id]);
         $pet = $stmt->fetch();
 
         if ($pet) {
+            // Copy the pet record into the recycle bin.
+            $stmt = $pdo->prepare(
+                "INSERT INTO pets_recycle_bin
+                (pet_id, owner_id, pet_name, species, breed, sex,
+                 birth_date, date_added, added_by, last_updated_by,
+                 last_updated, deleted_by, pet_image)
+                VALUES
+                (:pet_id, :owner_id, :pet_name, :species, :breed, :sex,
+                 :birth_date, :date_added, :added_by, :last_updated_by,
+                 :last_updated, :deleted_by, :pet_image)"
+            );
+
+            $stmt->execute([
+                "pet_id" => $pet["pet_id"],
+                "owner_id" => $pet["owner_id"],
+                "pet_name" => $pet["pet_name"],
+                "species" => $pet["species"],
+                "breed" => $pet["breed"],
+                "sex" => $pet["sex"],
+                "birth_date" => $pet["birth_date"],
+                "date_added" => $pet["date_added"],
+                "added_by" => $pet["added_by"],
+                "last_updated_by" => $pet["last_updated_by"],
+                "last_updated" => $pet["last_updated"],
+                "deleted_by" => $_SESSION["user_id"], 
+                "pet_image" => $pet["pet_image"]
+            ]);
+
             // Record the deletion in the audit log.
             $stmt = $pdo->prepare(
                 "INSERT INTO deletion_logs
-                 (entity_type, record_id, record_description, deleted_by)
-                 VALUES
-                 (:entity_type, :record_id, :record_description, :deleted_by)"
+                (entity_type, record_id, record_description, deleted_by)
+                VALUES
+                (:entity_type, :record_id, :record_description, :deleted_by)"
             );
 
             $stmt->execute([
@@ -40,7 +69,7 @@ if (isset($_GET["delete"]) && ctype_digit($_GET["delete"])) {
                 "deleted_by" => $_SESSION["user_id"]
             ]);
 
-            // Delete the pet record.
+            // Delete the original pet record.
             $stmt = $pdo->prepare(
                 "DELETE FROM pets WHERE pet_id = :pet_id"
             );
@@ -60,6 +89,7 @@ if (isset($_GET["delete"]) && ctype_digit($_GET["delete"])) {
     header("Location: pets.php?message=deleted");
     exit;
 }
+
 
 
 // Retrieve a pet for editing.
@@ -98,6 +128,48 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         if ($check->fetch()) {
             $birth_date = $birth_date !== "" ? $birth_date : null;
             $breed = $breed !== "" ? $breed : null;
+            $pet_image = null;
+
+if (isset($_FILES["pet_image"]) && $_FILES["pet_image"]["error"] !== UPLOAD_ERR_NO_FILE) {
+    if ($_FILES["pet_image"]["error"] !== UPLOAD_ERR_OK) {
+        die("Image upload failed.");
+    }
+
+    $max_size = 5 * 1024 * 1024;
+
+    if ($_FILES["pet_image"]["size"] > $max_size) {
+        die("Image must not exceed 5 MB.");
+    }
+
+    $image_info = getimagesize($_FILES["pet_image"]["tmp_name"]);
+
+    if ($image_info === false) {
+        die("Please upload a valid image.");
+    }
+
+    $mime_type = $image_info["mime"];
+
+    $allowed_types = [
+        "image/jpeg" => "jpg",
+        "image/png" => "png",
+        "image/gif" => "gif",
+        "image/webp" => "webp"
+    ];
+
+    if (!isset($allowed_types[$mime_type])) {
+        die("Only JPG, PNG, GIF, and WebP images are allowed.");
+    }
+
+    $file_name = bin2hex(random_bytes(16)) . "." . $allowed_types[$mime_type];
+
+    $upload_path = __DIR__ . "/uploads/pets/" . $file_name;
+
+    if (!move_uploaded_file($_FILES["pet_image"]["tmp_name"], $upload_path)) {
+        die("Unable to save the uploaded image.");
+    }
+
+    $pet_image = $file_name;
+}
 
             if ($pet_id !== "" && ctype_digit($pet_id)) {
                 $stmt = $pdo->prepare(
@@ -129,9 +201,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             } else {
                 $stmt = $pdo->prepare(
                     "INSERT INTO pets
-                     (owner_id, pet_name, species, breed, sex, birth_date, added_by)
-                     VALUES
-                     (:owner_id, :pet_name, :species, :breed, :sex, :birth_date, :added_by)"
+                    (owner_id, pet_name, species, breed, sex, birth_date, added_by, pet_image)
+                    VALUES
+                    (:owner_id, :pet_name, :species, :breed, :sex, :birth_date, :added_by, :pet_image)"
                 );
 
                 $stmt->execute([
@@ -141,7 +213,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     "breed" => $breed,
                     "sex" => $sex,
                     "birth_date" => $birth_date,
-                    "added_by" => $_SESSION["user_id"]
+                    "added_by" => $_SESSION["user_id"],
+                    "pet_image" => $pet_image
                 ]);
 
                 header("Location: pets.php?message=added");
@@ -196,8 +269,18 @@ $owners = $pdo->query(
      ORDER BY owner_name ASC"
 )->fetchAll();
 
+define("SECURE_MODE", false);
+
 function h($value) {
     return htmlspecialchars((string) $value, ENT_QUOTES, "UTF-8");
+}
+
+function pet_name_output($value) {
+    if (!SECURE_MODE) {
+        return (string) $value;
+    }
+
+    return h($value);
 }
 
 $messages = [
@@ -301,6 +384,7 @@ th { background: #edf3ef; }
         <a href="index.php">Home</a>
         <a href="owners.php">Owners</a>
         <a href="pets.php">Pets</a>
+        <a href="recycle_bin.php">Recycle Bin</a>
         <a href="logout.php">Logout</a>
     </nav>
 </header>
@@ -314,7 +398,7 @@ th { background: #edf3ef; }
         <h2><?= $edit_pet ? "Update Pet" : "Register New Pet" ?></h2>
 
         <?php if (count($owners) > 0): ?>
-        <form method="POST" action="pets.php">
+        <form method="POST" action="pets.php" enctype="multipart/form-data">
             <input type="hidden" name="pet_id"
                 value="<?= h($edit_pet["pet_id"] ?? "") ?>">
 
@@ -331,6 +415,12 @@ th { background: #edf3ef; }
                             </option>
                         <?php endforeach; ?>
                     </select>
+                </div>
+
+                <div class="form-group full">
+                        <label for="pet_image">Pet Image</label>
+                        <input type="file" id="pet_image" name="pet_image"
+                        accept="image/jpeg,image/png,image/gif,image/webp">
                 </div>
 
                 <div class="form-group">
@@ -419,6 +509,7 @@ th { background: #edf3ef; }
                     <tr>
                         <th>Pet ID</th>
                         <th>Pet Name</th>
+                        <th>Image</th>
                         <th>Owner</th>
                         <th>Species</th>
                         <th>Breed</th>
@@ -436,7 +527,18 @@ th { background: #edf3ef; }
                     <?php foreach ($pets as $pet): ?>
                     <tr>
                         <td><?= h($pet["pet_id"]) ?></td>
-                        <td><?= h($pet["pet_name"]) ?></td>
+                        <td><?= pet_name_output($pet["pet_name"]) ?></td>
+                        <td>
+                            <?php if (!empty($pet["pet_image"])): ?>
+                                <img src="uploads/pets/<?= h($pet["pet_image"]) ?>"
+                                    alt="Pet Image"
+                                    width="80"
+                                    height="80"
+                                    style="object-fit: cover; border-radius: 6px;">
+                            <?php else: ?>
+                                No image
+                            <?php endif; ?>
+                        </td>
                         <td><?= h($pet["owner_name"]) ?></td>
                         <td><?= h($pet["species"]) ?></td>
                         <td><?= h($pet["breed"]) ?></td>
@@ -459,7 +561,7 @@ th { background: #edf3ef; }
                     <?php endforeach; ?>
                 <?php else: ?>
                     <tr>
-                        <td colspan="12">No pets registered yet.</td>
+                        <td colspan="13">No pets registered yet.</td>
                     </tr>
                 <?php endif; ?>
                 </tbody>

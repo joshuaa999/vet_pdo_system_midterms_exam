@@ -63,6 +63,7 @@ if (!isset($_SESSION["user_id"])) {
         <div class="links">
             <a href="owners.php">Manage Owners</a>
             <a href="pets.php">Manage Pets</a>
+            <a href="recycle_bin.php">Recycle bin</a>
             <a href="logout.php">Logout</a>
         </div>
     </div>

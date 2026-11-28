@@ -277,6 +277,7 @@ th { background: #edf3ef; }
         <a href="index.php">Home</a>
         <a href="owners.php">Owners</a>
         <a href="pets.php">Pets</a>
+        <a href="recycle_bin.php">Recycle Bin</a>
         <a href="logout.php">Logout</a>
     </nav>
 </header>
